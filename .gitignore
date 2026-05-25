@@ -64,6 +64,7 @@ agent-orchestrator.yaml
 .claude/
 .opencode/
 .ao/
+.worktrees/
 
 # OS-specific files
 .DS_Store
