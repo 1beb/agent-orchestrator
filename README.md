@@ -16,24 +16,14 @@ autonomously fix CI failures, address review comments, and open PRs.
 ## Quick Start
 
 ```bash
-npm install -g @aoagents/ao
-ao start https://github.com/your-org/your-repo
-```
-
-Or from an existing local repo:
-
-```bash
-cd ~/your-project && ao start
-```
-
-Dashboard opens at http://localhost:3000.
-
-## Development
-
-```bash
 pnpm install && pnpm build
-pnpm test
 pnpm dev
+```
+
+Opens the dashboard at http://localhost:3000.
+
+```bash
+pnpm test
 ```
 
 Config lives at `~/.ao/agent-orchestrator.yaml`. Local issues are stored
