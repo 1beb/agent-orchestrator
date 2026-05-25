@@ -10,7 +10,7 @@
  * Everything else has sensible defaults.
  */
 
-import { readFileSync, existsSync, realpathSync } from "node:fs";
+import { copyFileSync, mkdirSync, readFileSync, existsSync, realpathSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { resolve, join, dirname, basename } from "node:path";
 import { homedir } from "node:os";
@@ -797,7 +797,7 @@ export function findConfigFile(startDir?: string): string | null {
     }
   }
 
-  // 4. Check global config path (new hybrid mode: ~/.agent-orchestrator/config.yaml)
+  // 4. Check global config path (new hybrid mode: ~/.ao/agent-orchestrator.yaml)
   //    This takes priority over legacy home-directory locations so that users who
   //    have migrated to the hybrid model always load from the canonical global path.
   const globalConfigPath = getGlobalConfigPath();
@@ -924,6 +924,30 @@ export function findConfig(startDir?: string): string | null {
   return findConfigFile(startDir);
 }
 
+export function migrateGlobalConfigIfNeeded(configPath: string): string | null {
+  // If the user explicitly set AO_GLOBAL_CONFIG, don't migrate
+  if (process.env["AO_GLOBAL_CONFIG"]) return null;
+
+  const newPath = join(homedir(), ".ao", "agent-orchestrator.yaml");
+  if (existsSync(newPath)) return null;
+
+  const legacyPatterns = [
+    join(homedir(), ".agent-orchestrator", "config.yaml"),
+  ];
+  const xdgHome = process.env["XDG_CONFIG_HOME"];
+  if (xdgHome) {
+    legacyPatterns.push(join(xdgHome, "agent-orchestrator", "config.yaml"));
+  }
+
+  const isLegacy = legacyPatterns.some((p) => resolve(configPath) === resolve(p));
+  if (!isLegacy) return null;
+
+  mkdirSync(dirname(newPath), { recursive: true });
+  copyFileSync(configPath, newPath);
+  console.error(`Config migrated to ${newPath}`);
+  return newPath;
+}
+
 /** Load and validate config from a YAML file */
 export function loadConfig(configPath?: string): LoadedConfig {
   // Priority: 1. Explicit param, 2. Search (including AO_CONFIG_PATH env var)
@@ -934,23 +958,26 @@ export function loadConfig(configPath?: string): LoadedConfig {
     throw new ConfigNotFoundError();
   }
 
-  const raw = readFileSync(path, "utf-8");
+  const migratedPath = migrateGlobalConfigIfNeeded(path);
+  const effectivePath = migratedPath ?? path;
+
+  const raw = readFileSync(effectivePath, "utf-8");
   const parsed = parseYaml(raw);
-  const shape = classifyConfigShape(path);
-  const isCanonicalGlobalConfig = isCanonicalGlobalConfigPath(path);
+  const shape = classifyConfigShape(effectivePath);
+  const isCanonicalGlobalConfig = isCanonicalGlobalConfigPath(effectivePath);
   const normalizedParsed =
     !isCanonicalGlobalConfig && shape === "wrapped"
-      ? applyWrappedLocalStorageKeys(path, parsed)
+      ? applyWrappedLocalStorageKeys(effectivePath, parsed)
       : parsed;
   const config = isCanonicalGlobalConfig
-    ? (buildEffectiveConfigFromGlobalConfigPath(path) ?? validateConfig(normalizedParsed))
+    ? (buildEffectiveConfigFromGlobalConfigPath(effectivePath) ?? validateConfig(normalizedParsed))
     : shape === "wrapped"
       ? validateConfig(normalizedParsed)
-      : (buildEffectiveConfigFromFlatLocalPath(path, normalizedParsed) ??
+      : (buildEffectiveConfigFromFlatLocalPath(effectivePath, normalizedParsed) ??
         validateConfig(normalizedParsed));
 
   // Set the config path in the config object for hash generation
-  config.configPath = path;
+  config.configPath = effectivePath;
   if (!("degradedProjects" in config)) {
     (config as LoadedConfig).degradedProjects = {};
   }
@@ -969,28 +996,31 @@ export function loadConfigWithPath(configPath?: string): {
     throw new ConfigNotFoundError();
   }
 
-  const raw = readFileSync(path, "utf-8");
+  const migratedPath = migrateGlobalConfigIfNeeded(path);
+  const effectivePath = migratedPath ?? path;
+
+  const raw = readFileSync(effectivePath, "utf-8");
   const parsed = parseYaml(raw);
-  const shape = classifyConfigShape(path);
-  const isCanonicalGlobalConfig = isCanonicalGlobalConfigPath(path);
+  const shape = classifyConfigShape(effectivePath);
+  const isCanonicalGlobalConfig = isCanonicalGlobalConfigPath(effectivePath);
   const normalizedParsed =
     !isCanonicalGlobalConfig && shape === "wrapped"
-      ? applyWrappedLocalStorageKeys(path, parsed)
+      ? applyWrappedLocalStorageKeys(effectivePath, parsed)
       : parsed;
   const config = isCanonicalGlobalConfig
-    ? (buildEffectiveConfigFromGlobalConfigPath(path) ?? validateConfig(normalizedParsed))
+    ? (buildEffectiveConfigFromGlobalConfigPath(effectivePath) ?? validateConfig(normalizedParsed))
     : shape === "wrapped"
       ? validateConfig(normalizedParsed)
-      : (buildEffectiveConfigFromFlatLocalPath(path, normalizedParsed) ??
+      : (buildEffectiveConfigFromFlatLocalPath(effectivePath, normalizedParsed) ??
         validateConfig(normalizedParsed));
 
   // Set the config path in the config object for hash generation
-  config.configPath = path;
+  config.configPath = effectivePath;
   if (!("degradedProjects" in config)) {
     (config as LoadedConfig).degradedProjects = {};
   }
 
-  return { config: config as LoadedConfig, path };
+  return { config: config as LoadedConfig, path: effectivePath };
 }
 
 /** Validate a raw config object */

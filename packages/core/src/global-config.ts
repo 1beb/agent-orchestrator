@@ -77,8 +77,9 @@ export interface RegisterProjectOptions {
  *
  * Priority:
  *   1. AO_GLOBAL_CONFIG environment variable (explicit global config override)
- *   2. $XDG_CONFIG_HOME/agent-orchestrator/config.yaml
- *   3. ~/.agent-orchestrator/config.yaml  (default)
+ *   2. ~/.ao/agent-orchestrator.yaml  (new default)
+ *   3. $XDG_CONFIG_HOME/agent-orchestrator/config.yaml (compatibility)
+ *   4. ~/.agent-orchestrator/config.yaml  (legacy)
  *
  * NOTE: This intentionally does NOT read AO_CONFIG_PATH. That env var is used
  * by findConfigFile() to locate any config (including project-local ones).
@@ -90,9 +91,18 @@ export function getGlobalConfigPath(): string {
     return resolve(process.env["AO_GLOBAL_CONFIG"]);
   }
 
+  const defaultPath = join(homedir(), ".ao", "agent-orchestrator.yaml");
+  if (existsSync(defaultPath)) {
+    return defaultPath;
+  }
+
+  // Fallback: XDG config path (compatibility)
   const xdgConfigHome = process.env["XDG_CONFIG_HOME"];
   if (xdgConfigHome) {
-    return join(xdgConfigHome, "agent-orchestrator", "config.yaml");
+    const xdgPath = join(xdgConfigHome, "agent-orchestrator", "config.yaml");
+    if (existsSync(xdgPath)) {
+      return xdgPath;
+    }
   }
 
   return join(homedir(), ".agent-orchestrator", "config.yaml");
